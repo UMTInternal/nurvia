@@ -83,6 +83,8 @@ export const env = {
 
   push: {
     provider: process.env.PUSH_PROVIDER ?? 'console',
+    // Firebase project that owns the apps' FCM tokens. Credentials come from GOOGLE_APPLICATION_CREDENTIALS.
+    firebaseProjectId: process.env.FIREBASE_PROJECT_ID ?? '',
   },
 
   // Masked calls between customers and shops (Explore → Call Store). 'direct' hands out the shop's

@@ -13,9 +13,11 @@ const { env } = await import('../src/config/env.js');
 const { connectDb } = await import('../src/config/db.js');
 const { createApp } = await import('../src/app.js');
 const { DEMO_ADMIN, seedDemoData } = await import('./demo-data.js');
+const { seedIndoreData } = await import('./seed-indore.js');
 
 await connectDb();
 await seedDemoData();
+await seedIndoreData();
 
 createApp().listen(env.port, () => {
   console.info(`\nNurvia API (in-memory demo data) on http://localhost:${env.port}/api/v1`);

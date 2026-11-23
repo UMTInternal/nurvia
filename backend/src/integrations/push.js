@@ -6,10 +6,10 @@ async function fcm() {
   if (!firebaseMessaging) {
     // firebase-admin is only needed once FCM is switched on, so it is loaded lazily.
     // Credentials come from GOOGLE_APPLICATION_CREDENTIALS (a service-account file owned by Nurvia).
-    const { initializeApp, applicationDefault } = await import('firebase-admin/app');
+    const { initializeApp, applicationDefault, getApps } = await import('firebase-admin/app');
     const { getMessaging } = await import('firebase-admin/messaging');
-    initializeApp({ credential: applicationDefault() });
-    firebaseMessaging = getMessaging();
+    const app = getApps()[0] ?? initializeApp({ credential: applicationDefault(), projectId: env.push.firebaseProjectId || undefined });
+    firebaseMessaging = getMessaging(app);
   }
   return firebaseMessaging;
 }

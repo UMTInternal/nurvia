@@ -6,3 +6,5 @@ backend/storage/
 backend/storage-test/
 *.log
 backend/.tmp/
+backend/firebase-service-account.json
+backend/*-firebase-adminsdk-*.json
