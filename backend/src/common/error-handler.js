@@ -24,6 +24,11 @@ export function errorHandler(err, req, res, _next) {
   if (err instanceof mongoose.Error.CastError) {
     return res.status(400).json({ error: { code: 'BAD_REQUEST', message: `Invalid value for ${err.path}` } });
   }
+  if (err instanceof mongoose.Error.VersionError) {
+    return res.status(409).json({
+      error: { code: 'CONFLICT', message: 'This was just changed by someone else. Refresh and check its latest status before trying again.' },
+    });
+  }
   if (err?.code === 11000) {
     const fields = Object.keys(err.keyPattern ?? {}).filter((f) => f !== 'tenant');
     return res.status(409).json({ error: { code: 'CONFLICT', message: `Duplicate value for ${fields.join(', ')}` } });

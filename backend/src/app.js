@@ -70,6 +70,15 @@ export function createApp() {
     const db = mongoose.connection.readyState === 1;
     res.status(db ? 200 : 503).json({ status: db ? 'ok' : 'degraded', db });
   });
+  app.get('/', (_req, res) => {
+    res.json({
+      name: 'Nurvia API',
+      status: 'running',
+      docs: '/api-docs',
+      adminPanel: 'http://192.168.1.19:5280',
+      vendorPanel: 'http://192.168.1.19:5281',
+    });
+  });
   app.use('/media', express.static(publicDir, { maxAge: '7d', index: false, dotfiles: 'deny' }));
 
   // The webhook needs the unparsed body for signature checks, so it is registered before express.json().
@@ -79,6 +88,16 @@ export function createApp() {
   const api = express.Router();
   api.use(rateLimit({ windowMs: 60_000, limit: 300, standardHeaders: 'draft-7', legacyHeaders: false, skip: () => env.nodeEnv === 'test' }));
   api.use(resolveTenant);
+  api.get('/', (_req, res) => {
+    res.json({
+      name: 'Nurvia API v1',
+      status: 'running',
+      docs: '/api-docs',
+      adminPanel: 'http://192.168.1.19:5280',
+      vendorPanel: 'http://192.168.1.19:5281',
+      endpoints: ['/auth', '/users', '/pets', '/vendors', '/bookings', '/shop', '/explore', '/home']
+    });
+  });
 
   api.use('/auth', authRoutes);
   api.use('/users', userRoutes);

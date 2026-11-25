@@ -1,14 +1,33 @@
 import { Link, useParams } from 'react-router-dom';
-import { Badge, ErrorNote, Table, formatDate, formatRupees, useApi } from '../ui.jsx';
+import { api } from '../api.js';
+import { useSession } from '../session.jsx';
+import { Badge, ErrorNote, Table, formatDate, formatRupees, useApi, useConfirm } from '../ui.jsx';
 
 export default function BookingDetail() {
   const { id } = useParams();
-  const { data: b, error } = useApi(`/admin/bookings/${id}`);
+  const { data: b, error, reload } = useApi(`/admin/bookings/${id}`);
+  const { can } = useSession();
+  const [confirm, dialog] = useConfirm();
   if (error) return <ErrorNote error={error} />;
   if (!b) return <div className="muted">Loading…</div>;
 
+  // Cancel or refund on the customer's behalf. The reason is kept in the audit log.
+  const act = (action, options) =>
+    confirm({
+      ...options,
+      reason: 'required',
+      danger: true,
+      onConfirm: async (reason) => {
+        await api.post(`/admin/bookings/${id}/actions`, { action, reason });
+        reload();
+      },
+    });
+  const canCancel = can('bookings.manage') && ['pending', 'accepted'].includes(b.status);
+  const canRefund = can('bookings.manage') && b.payment?.status === 'paid';
+
   return (
     <div className="stack">
+      {dialog}
       <div className="page-head">
         <div>
           <Link to="/bookings" className="small">
@@ -18,6 +37,38 @@ export default function BookingDetail() {
             Booking <span className="mono" style={{ fontSize: 18 }}>{b.code}</span> <Badge value={b.status} />
           </h1>
         </div>
+        {(canCancel || canRefund) && (
+          <div className="row">
+            {canCancel && (
+              <button
+                className="danger"
+                onClick={() =>
+                  act('cancel', {
+                    title: `Cancel booking ${b.code}?`,
+                    message: 'The customer and the vendor are told. A paid booking is refunded in full.',
+                    confirmLabel: 'Cancel booking',
+                  })
+                }
+              >
+                Cancel booking
+              </button>
+            )}
+            {canRefund && (
+              <button
+                className="danger"
+                onClick={() =>
+                  act('refund', {
+                    title: `Refund ${formatRupees(b.payment?.amountPaise)}?`,
+                    message: 'The full amount paid goes back to the customer. This cannot be undone.',
+                    confirmLabel: 'Issue refund',
+                  })
+                }
+              >
+                Refund
+              </button>
+            )}
+          </div>
+        )}
       </div>
       <div className="grid-2">
         <section className="card">

@@ -31,6 +31,8 @@ const userSchema = new mongoose.Schema(
     // Reached if the user is unreachable during a procedure. Shown to a vendor only during an accepted booking.
     emergencyContact: { name: String, phone: String },
     addresses: [addressSchema],
+    // Providers the person saved to find again (Account > Saved Vendors).
+    savedVendors: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Vendor' }],
     preferences: {
       language: { type: String, default: 'en' },
       notifications: { type: Boolean, default: true },

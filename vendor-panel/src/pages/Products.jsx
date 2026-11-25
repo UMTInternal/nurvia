@@ -407,7 +407,14 @@ const slugify = (text) =>
 
 const rupees = (paise) => (paise === undefined || paise === null ? '' : String(paise / 100));
 const paise = (value) => Math.round(Number(value) * 100);
-const blankVariant = () => ({ key: crypto.randomUUID(), sku: '', label: '', mrp: '', price: '', stock: '' });
+// A React list key for a row that has no id yet. crypto.randomUUID exists only in secure contexts
+// (HTTPS or localhost), so it is missing when the panel is opened by a LAN address such as
+// http://192.168.1.19:5281. The key only has to be unique on this page, so fall back to a counter.
+let keyCounter = 0;
+const newKey = () =>
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `k${Date.now().toString(36)}-${++keyCounter}`;
+
+const blankVariant = () => ({ key: newKey(), sku: '', label: '', mrp: '', price: '', stock: '' });
 
 function ProductEditor({ product, categories, onClose, onSaved }) {
   const ref = useRef(null);
@@ -429,7 +436,7 @@ function ProductEditor({ product, categories, onClose, onSaved }) {
   const [images, setImages] = useState(() => (product.images ?? []).map((i) => ({ file: i.file, url: i.url })));
   const [variants, setVariants] = useState(() =>
     product.variants?.length
-      ? product.variants.map((v) => ({ key: crypto.randomUUID(), sku: v.sku, label: v.label, mrp: rupees(v.mrpPaise), price: rupees(v.pricePaise), stock: String(v.stock) }))
+      ? product.variants.map((v) => ({ key: newKey(), sku: v.sku, label: v.label, mrp: rupees(v.mrpPaise), price: rupees(v.pricePaise), stock: String(v.stock) }))
       : [blankVariant()],
   );
   const [uploading, setUploading] = useState(false);
@@ -518,7 +525,7 @@ function ProductEditor({ product, categories, onClose, onSaved }) {
               }}
               required
               maxLength={120}
-              pattern="[a-z0-9-]+"
+              pattern="[a-z0-9\-]+"
               title="Lowercase letters, numbers and dashes"
             />
           </label>

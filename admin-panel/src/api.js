@@ -1,4 +1,8 @@
-const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api/v1';
+// With no VITE_API_URL the API is assumed to run on the same host as this page, so the panel works
+// on localhost and over the LAN even when the machine's address changes. VITE_API_PORT sets its port.
+const BASE =
+  import.meta.env.VITE_API_URL ||
+  `${location.protocol}//${location.hostname}:${import.meta.env.VITE_API_PORT || 4000}/api/v1`;
 
 // Tokens live in sessionStorage so a closed tab ends the admin session.
 const store = {

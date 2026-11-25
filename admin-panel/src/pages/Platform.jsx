@@ -107,7 +107,7 @@ export default function Platform() {
               </label>
               <label className="field">
                 Slug
-                <input value={form.slug} onChange={set('slug')} required pattern="[a-z0-9-]{2,40}" disabled={Boolean(editing._id)} className="mono" />
+                <input value={form.slug} onChange={set('slug')} required pattern="[a-z0-9\-]{2,40}" disabled={Boolean(editing._id)} className="mono" />
               </label>
               <label className="field">
                 State / UT

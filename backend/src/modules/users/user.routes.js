@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authenticate } from '../../common/auth.js';
-import { badRequest } from '../../common/errors.js';
+import { badRequest, notFound } from '../../common/errors.js';
 import { LANGUAGE_CODES } from '../../common/languages.js';
 import { indianMobile, objectId, point, validate } from '../../common/validate.js';
 import { otpDelivery, otpLimiter, otpTarget, targetOf } from '../auth/auth.routes.js';
@@ -9,6 +9,7 @@ import { acceptTerms, onboardingFor, requestOtp, revokeAllSessions, verifyContac
 import { attachmentsFor } from '../files/file.routes.js';
 import { registerDevice } from '../notifications/notify.js';
 import { citySummary, getPlatform, matchCity, resolveCity } from '../platform/platform.service.js';
+import { Vendor } from '../vendors/vendor.model.js';
 import { User } from './user.model.js';
 
 const router = Router();
@@ -157,6 +158,34 @@ router.put(
 router.put('/me/addresses', validate({ body: { addresses: z.array(address).max(10) } }), async (req, res) => {
   const user = await User.findByIdAndUpdate(req.user._id, { addresses: req.valid.body.addresses }, { new: true, runValidators: true });
   res.json(user.addresses);
+});
+
+// ---- Saved vendors ----
+
+const VENDOR_CARD = 'businessName address categories ratingAvg ratingCount description status';
+
+// Only live providers are listed; one that was suspended since it was saved is hidden, not deleted.
+router.get('/me/saved-vendors', async (req, res) => {
+  const user = await User.findById(req.user._id).select('savedVendors').lean();
+  const vendors = await Vendor.find({ _id: { $in: user?.savedVendors ?? [] }, status: 'active' })
+    .select(VENDOR_CARD)
+    .populate('categories', 'name slug')
+    .lean();
+  const order = new Map((user?.savedVendors ?? []).map((id, i) => [String(id), i]));
+  vendors.sort((a, b) => order.get(String(b._id)) - order.get(String(a._id))); // newest saved first
+  res.json({ items: vendors });
+});
+
+router.put('/me/saved-vendors/:vendorId', validate({ params: { vendorId: objectId } }), async (req, res) => {
+  const vendor = await Vendor.findOne({ _id: req.valid.params.vendorId, status: 'active' }).select('_id');
+  if (!vendor) throw notFound('Vendor');
+  await User.updateOne({ _id: req.user._id }, { $addToSet: { savedVendors: vendor._id } });
+  res.json({ saved: true });
+});
+
+router.delete('/me/saved-vendors/:vendorId', validate({ params: { vendorId: objectId } }), async (req, res) => {
+  await User.updateOne({ _id: req.user._id }, { $pull: { savedVendors: req.valid.params.vendorId } });
+  res.json({ saved: false });
 });
 
 router.post('/me/devices', validate({ body: { token: z.string().min(10).max(4096) } }), async (req, res) => {

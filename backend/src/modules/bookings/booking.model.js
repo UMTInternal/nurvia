@@ -65,7 +65,9 @@ const bookingSchema = new mongoose.Schema(
     },
     reviewed: { type: Boolean, default: false },
   },
-  { timestamps: true },
+  // Optimistic concurrency: a save fails (VersionError, answered as 409) when the booking changed since it
+  // was loaded. Without it, an admin cancelling while the vendor accepts both succeed and the later write wins.
+  { timestamps: true, optimisticConcurrency: true },
 );
 bookingSchema.plugin(tenantPlugin);
 bookingSchema.index({ tenant: 1, code: 1 }, { unique: true });
