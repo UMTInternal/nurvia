@@ -5,7 +5,7 @@ import { env } from '../../config/env.js';
 import { signAccessToken } from '../../common/auth.js';
 import { badRequest, conflict, forbidden, notFound, tooMany, unauthorized } from '../../common/errors.js';
 import { verifyIdToken } from '../../integrations/identity.js';
-import { deliverOtp, exposesDevCode, fixedDevCode } from '../../integrations/otp.js';
+import { checkTwilioCode, deliverOtp, exposesDevCode, fixedDevCode, providerChecksCode, testAccountCode } from '../../integrations/otp.js';
 import { saveFile, sniff } from '../files/file.routes.js';
 import { Pet } from '../pets/pet.model.js';
 import { resolveCity } from '../platform/platform.service.js';
@@ -50,17 +50,29 @@ export async function requestOtp({ kind, target, channel = kind === 'email' ? 'e
   const sentLastHour = await OtpSend.countDocuments({ target, createdAt: { $gt: new Date(Date.now() - 3_600_000) } });
   if (sentLastHour >= env.otp.maxSendsPerHour) throw tooMany('Too many codes requested. Please try again in an hour');
 
-  const code = fixedDevCode() ?? String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
+  const testCode = testAccountCode(target);
+  // Twilio Verify makes and checks its own code; test numbers keep their fixed code.
+  const providerChecked = !testCode && providerChecksCode(channel);
+  const code = providerChecked ? undefined : (testCode ?? fixedDevCode() ?? String(crypto.randomInt(0, 1_000_000)).padStart(6, '0'));
   await OtpChallenge.deleteMany({ target });
-  await OtpChallenge.create({
+  const challenge = await OtpChallenge.create({
     channel,
     target,
-    codeHash: hashOtp(target, code),
+    ...(providerChecked ? { providerChecked } : { codeHash: hashOtp(target, code) }),
     purpose,
     expiresAt: new Date(Date.now() + env.otp.ttlSeconds * 1000),
   });
+  // Counted before sending, so failed sends still count towards the hourly limit.
   await OtpSend.create({ target });
-  await deliverOtp({ channel, target, code, appHash });
+  // Test numbers are not real phones: their code is known, so nothing is sent.
+  if (!testCode) {
+    try {
+      await deliverOtp({ channel, target, code, appHash });
+    } catch (err) {
+      await challenge.deleteOne();
+      throw err;
+    }
+  }
 
   return {
     channel,
@@ -156,7 +168,8 @@ async function checkOtp(target, code, purposes) {
     await challenge.deleteOne();
     throw tooMany('Too many incorrect attempts; request a new code');
   }
-  if (!safeEqual(challenge.codeHash, hashOtp(target, code))) {
+  const correct = challenge.providerChecked ? await checkTwilioCode(target, code) : safeEqual(challenge.codeHash, hashOtp(target, code));
+  if (!correct) {
     throw unauthorized('Incorrect code', { attemptsLeft: env.otp.maxAttempts - challenge.attempts });
   }
   // Deleting is the claim: of two requests with the right code, only one opens a session.

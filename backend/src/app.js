@@ -4,6 +4,8 @@ import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import mongoose from 'mongoose';
 import swaggerUi from 'swagger-ui-express';
 // Must load before the route modules below register their routers.
@@ -22,6 +24,7 @@ import communityRoutes from './modules/community/community.routes.js';
 import communityDogRoutes from './modules/community-dogs/community-dog.routes.js';
 import exploreRoutes, { vendorStockChecksRouter } from './modules/explore/explore.routes.js';
 import fileRoutes from './modules/files/file.routes.js';
+import geoRoutes from './modules/geo/geo.routes.js';
 import homeRoutes from './modules/home/home.routes.js';
 import { vendorSettlementsRouter } from './modules/finance/finance.routes.js';
 import loyaltyRoutes from './modules/loyalty/loyalty.routes.js';
@@ -43,6 +46,17 @@ import userRoutes from './modules/users/user.routes.js';
 import vendorPanelRoutes from './modules/vendors/vendor-panel.routes.js';
 import vendorRoutes from './modules/vendors/vendor.routes.js';
 
+// Production builds of the panels (`npm run build` at the repo root) are served from the API's own
+// origin, so they call it at /api/v1 with no CORS. A panel that has not been built is skipped.
+const panels = {
+  '/admin': path.resolve(import.meta.dirname, '../../admin-panel/dist'),
+  '/vendor': path.resolve(import.meta.dirname, '../../vendor-panel/dist'),
+};
+
+// Any port on this machine, and any port on a private network address (10.x, 172.16-31.x, 192.168.x).
+const localOrigin = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
+const lanOrigin = /^https?:\/\/(10(\.\d{1,3}){3}|172\.(1[6-9]|2\d|3[01])(\.\d{1,3}){2}|192\.168(\.\d{1,3}){2})(:\d+)?$/;
+
 export function createApp() {
   const app = express();
   app.disable('x-powered-by');
@@ -62,23 +76,39 @@ export function createApp() {
     const swaggerOptions = { url: '/api-docs.json', persistAuthorization: true, filter: true, deepLinking: true };
     app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(null, { swaggerOptions }));
   }
-  app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
-  app.use(cors({ origin: env.corsOrigins, allowedHeaders: ['Content-Type', 'Authorization', 'X-Tenant', 'X-Request-Id'] }));
+  // Outside production the API is also opened over plain HTTP on the machine's Wi-Fi address, where
+  // upgrade-insecure-requests would send the panels' own scripts to https and break them.
+  // Razorpay Checkout (vendors paying for a plan in the partner panel) loads its script and opens its frame.
+  const csp = {
+    directives: {
+      upgradeInsecureRequests: env.isProd ? [] : null,
+      scriptSrc: ["'self'", 'https://checkout.razorpay.com'],
+      frameSrc: ["'self'", 'https://api.razorpay.com', 'https://checkout.razorpay.com'],
+      connectSrc: ["'self'", 'https://*.razorpay.com'],
+    },
+  };
+  app.use(helmet({ contentSecurityPolicy: csp, crossOriginResourcePolicy: { policy: 'cross-origin' } }));
+  // Outside production the API is also called from origins nobody lists ahead of time: Flutter web on
+  // localhost (a new port on every run) and apps opened from another device by a Wi-Fi address.
+  const corsOrigins = env.isProd ? env.corsOrigins : [...env.corsOrigins, localOrigin, lanOrigin];
+  app.use(cors({ origin: corsOrigins, allowedHeaders: ['Content-Type', 'Authorization', 'X-Tenant', 'X-Request-Id'] }));
   if (env.nodeEnv !== 'test') app.use(morgan(env.isProd ? 'combined' : 'dev'));
 
   app.get('/health', (_req, res) => {
     const db = mongoose.connection.readyState === 1;
     res.status(db ? 200 : 503).json({ status: db ? 'ok' : 'degraded', db });
   });
-  app.get('/', (_req, res) => {
+  // Opening the API's base address in a browser shows that it is up, instead of a 404.
+  app.get('/api/v1', (_req, res) =>
     res.json({
       name: 'Nurvia API',
+      version: 'v1',
       status: 'running',
-      docs: '/api-docs',
-      adminPanel: 'http://192.168.1.19:5280',
-      vendorPanel: 'http://192.168.1.19:5281',
-    });
-  });
+      health: '/health',
+      ...(env.apiDocs && { docs: '/api-docs' }),
+      endpoints: ['/auth', '/users', '/pets', '/vendors', '/bookings', '/shop', '/explore', '/home', '/geo', '/plans'],
+    }),
+  );
   app.use('/media', express.static(publicDir, { maxAge: '7d', index: false, dotfiles: 'deny' }));
 
   // The webhook needs the unparsed body for signature checks, so it is registered before express.json().
@@ -88,16 +118,6 @@ export function createApp() {
   const api = express.Router();
   api.use(rateLimit({ windowMs: 60_000, limit: 300, standardHeaders: 'draft-7', legacyHeaders: false, skip: () => env.nodeEnv === 'test' }));
   api.use(resolveTenant);
-  api.get('/', (_req, res) => {
-    res.json({
-      name: 'Nurvia API v1',
-      status: 'running',
-      docs: '/api-docs',
-      adminPanel: 'http://192.168.1.19:5280',
-      vendorPanel: 'http://192.168.1.19:5281',
-      endpoints: ['/auth', '/users', '/pets', '/vendors', '/bookings', '/shop', '/explore', '/home']
-    });
-  });
 
   api.use('/auth', authRoutes);
   api.use('/users', userRoutes);
@@ -117,6 +137,7 @@ export function createApp() {
   api.use('/payments', paymentRoutes);
   api.use('/reviews', reviewRoutes);
   api.use('/config', platformRoutes);
+  api.use('/geo', geoRoutes);
   // Sellers keep managing their catalogue, and customers keep seeing past orders, while the marketplace is off.
   const marketplace = requireFeature('marketplace');
   api.use('/shop', (req, res, next) => (req.path.startsWith('/seller') || (req.method === 'GET' && req.path.startsWith('/orders')) ? next() : marketplace(req, res, next)), shopRoutes);
@@ -137,6 +158,27 @@ export function createApp() {
   api.use('/admin', adminRoutes);
 
   app.use('/api/v1', api);
+
+  for (const [mount, dir] of Object.entries(panels)) {
+    if (!fs.existsSync(path.join(dir, 'index.html'))) continue;
+    // Bundles have hashed names, so they can be cached for good; index.html is revalidated on every load.
+    app.use(mount, express.static(dir, { index: false, maxAge: '1y', immutable: true }));
+    // Client-side routes get the app shell; a missing file (an old bundle after a deploy) stays a 404.
+    app.get(`${mount}{/*route}`, (req, res, next) => (path.extname(req.path) ? next() : res.sendFile(path.join(dir, 'index.html'))));
+  }
+  if (fs.existsSync(path.join(panels['/admin'], 'index.html'))) {
+    app.get('/', (_req, res) => res.redirect('/admin/'));
+  } else {
+    app.get('/', (_req, res) =>
+      res.json({
+        name: 'Nurvia API',
+        status: 'running',
+        health: '/health',
+        ...(env.apiDocs && { docs: '/api-docs' }),
+      }),
+    );
+  }
+
   app.use(notFoundHandler);
   app.use(errorHandler);
   return app;

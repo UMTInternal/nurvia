@@ -3,7 +3,7 @@
 | Folder | What it is |
 |---|---|
 | [backend/](backend/) | Shared API for the Pet Parent app, Vendor app and Admin panel. Node.js + Express 5 + MongoDB (Mongoose). |
-| [admin-panel/](admin-panel/) | Admin panel for Nurvia staff. React 18 + Vite. Opens on the super admin overview: snapshot metrics and four triage queues (vendor applications, safety alerts, community dog badges, adoption sign-off). It has no screen for browsing or suspending pet parents; that is done through `/admin/users` in the API. |
+| [admin-panel/](admin-panel/) | Admin panel for Nurvia staff. React 18 + Vite. Opens on the super admin overview: snapshot metrics and four triage queues (vendor applications, safety alerts, community dog badges, adoption sign-off). The Customers screen lists pet parents with their pets, bookings and orders; suspending one is still done through `/admin/users` in the API. |
 | [vendor-panel/](vendor-panel/) | Partner panel for vets, groomers and other providers: today's schedule, booking requests, services and prices, reviews, earnings, business profile and KYC, plus the shop: products, orders, returns and wishlist counts. React 18 + Vite. A separate app from the admin panel, with its own login (mobile OTP). |
 
 There is no pet parent website. The mobile apps (Pet Parent, Vendor) are not in this repo yet; they use the same `/api/v1` endpoints, including the customer side of the shop.
@@ -43,6 +43,16 @@ API docs (Swagger) are at http://localhost:4000/api-docs outside production, gen
 
 Tests: `cd backend && npm test`. They start their own in-memory MongoDB and run the main flows end to end: OTP login, tenant isolation, the KYC → approval → geo discovery path, booking clashes, payment and refund, reviews, moderation, permissions and announcements.
 
+## Deploy as one Node app
+
+The root `package.json` builds and runs the API with both panels on a single origin, for a host that runs one Node app per domain (Hostinger Node.js hosting, a VPS with PM2, and so on):
+
+- build command `npm run build`, start command `npm start` (or entry file `backend/src/server.js`), Node 22 or later
+- the API at `/api/v1`, the admin panel at `/admin/`, the partner panel at `/vendor/`; `/` redirects to the admin panel
+- the panels call the API at `/api/v1` on the same origin (`.env.production` in each panel), so `CORS_ORIGINS` only needs the site's own URL
+
+Set the backend variables from `backend/.env.example` in the host's environment settings. `MONGODB_URI` must point at a database the host can reach (Atlas, for shared hosting), `PUBLIC_BASE_URL` at the site's URL, and `TRUST_PROXY=1` when it runs behind the host's proxy. Leave `PORT` to the host if it assigns one. Run `npm run seed --prefix backend` once against the new database to create the first super admin.
+
 ## Architecture
 
 - **Modular, API-first.** Each domain lives in `backend/src/modules/<name>/` and owns its model and routes: auth, users, pets, vendors, bookings, payments, community-dogs, adoption, community, reviews, reports, notifications, files, ai, admin and tenants, plus nfc, sos, shop (with returns and reviews), operations (vendor workspace: staff, CRM, appointments, visit records), finance (seller onboarding, commission, settlements), loyalty and plans.
@@ -65,7 +75,8 @@ Each provider sits behind an adapter in `backend/src/integrations/`. Switch prov
 | Call relay (Explore → Call Store) | **Not masked yet.** The `direct` adapter gives customers the shop's own number. A masking provider (Exotel, Knowlarity) is needed before calls hide both numbers. | `CALL_RELAY_PROVIDER` |
 | File storage | **Local disk.** Swap to S3, GCS or R2 for production. | `UPLOAD_DIR` |
 | AI health summary | **Endpoint and data-minimisation in place; no provider yet.** Returns 503 until Nurvia approves a provider. | `AI_PROVIDER` |
-| Maps | The API does the geo search itself (MongoDB `2dsphere`). The apps still need a Google Maps key for map display and geocoding. | — |
+| Maps | The API does the geo search itself (MongoDB `2dsphere`). The apps still need a Google Maps key for map display. | — |
+| Address search | **Photon implemented** (OpenStreetMap, free, no key) and **Google** (Places + Geocoding; written to Google's docs, not yet tried with a key). `/geo/search` suggests addresses as the user types, `/geo/places/{placeId}` gives the picked one as address fields plus a map pin, `/geo/reverse` gives the address at a pin. The partner panel's address fields use it; the apps can use the same endpoints. The public Photon server is fair-use only, so production should use Google or a self-hosted Photon. | `GEOCODING_PROVIDER`, `GOOGLE_MAPS_API_KEY`, `PHOTON_URL` |
 | Email | Not wired yet. Email codes and sign-in links use the same OTP adapter. | `MAGIC_LINK_URL` |
 | Google / Apple sign-in | **Implemented** (ID tokens checked against the providers' published keys). Off until client IDs are set. | `GOOGLE_CLIENT_IDS`, `APPLE_CLIENT_IDS` |
 

@@ -51,8 +51,28 @@ export const env = {
     // Development only: every code is this value (e.g. 123456), so testers need not read devCode.
     // Ignored unless the provider is console and NODE_ENV is not production.
     fixedCode: process.env.OTP_FIXED_CODE || undefined,
+    // Test numbers with a fixed code, for QA and store review. Unlike OTP_FIXED_CODE they also work in
+    // production. Nothing is sent to them. Format: 9755430166:123456,9876543210:654321
+    testAccounts: new Map(
+      list(process.env.OTP_TEST_ACCOUNTS, '').map((entry) => {
+        const [phone, code] = entry.split(':').map((s) => s.trim());
+        const digits = (phone ?? '').replace(/[\s()+-]/g, '').replace(/^91(?=[6-9]\d{9}$)/, '');
+        if (!/^[6-9]\d{9}$/.test(digits) || !/^\d{6}$/.test(code ?? '')) {
+          throw new Error(`OTP_TEST_ACCOUNTS entry "${entry}" must look like 9755430166:123456`);
+        }
+        return [`+91${digits}`, code];
+      }),
+    ),
   },
 
+
+  // OTP_PROVIDER=twilio: Twilio Verify, authenticated with an API key (not the account auth token).
+  twilio: {
+    accountSid: process.env.TWILIO_ACCOUNT_SID,
+    apiKeySid: process.env.TWILIO_API_KEY_SID,
+    apiKeySecret: process.env.TWILIO_API_KEY_SECRET,
+    verifyServiceSid: process.env.TWILIO_VERIFY_SERVICE_SID,
+  },
 
   // Sign in with Google / Apple: the OAuth client IDs whose ID tokens are accepted (web, Android, iOS).
   // A provider with no client IDs is switched off.
@@ -67,6 +87,10 @@ export const env = {
     termsUrl: process.env.TERMS_URL ?? `${(process.env.WEB_BASE_URL ?? 'http://localhost:5282').replace(/\/$/, '')}/terms`,
     privacyUrl: process.env.PRIVACY_URL ?? `${(process.env.WEB_BASE_URL ?? 'http://localhost:5282').replace(/\/$/, '')}/privacy`,
     supportUrl: process.env.SUPPORT_URL ?? `${(process.env.WEB_BASE_URL ?? 'http://localhost:5282').replace(/\/$/, '')}/support`,
+  },
+
+  support: {
+    email: process.env.SUPPORT_EMAIL ?? 'support@nurviapetcare.com',
   },
 
   uploads: {
@@ -95,6 +119,14 @@ export const env = {
 
   ai: {
     provider: process.env.AI_PROVIDER ?? 'disabled',
+  },
+
+  // Address search as you type, and the address at a map pin. photon: OpenStreetMap data, no key
+  // (PHOTON_URL can point at a self-hosted instance). google: Places and Geocoding APIs.
+  geocoding: {
+    provider: process.env.GEOCODING_PROVIDER ?? 'photon',
+    photonUrl: (process.env.PHOTON_URL ?? 'https://photon.komoot.io').replace(/\/$/, ''),
+    googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY,
   },
 
   jobs: {

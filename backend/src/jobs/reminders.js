@@ -2,7 +2,8 @@ import { runWithTenant } from '../common/tenancy.js';
 import { sendAppointmentReminders } from '../modules/bookings/booking.service.js';
 import { notify } from '../modules/notifications/notify.js';
 import { Pet, Reminder } from '../modules/pets/pet.model.js';
-import { expireUnpaidOrders } from '../modules/shop/shop.service.js';
+import { runSubscriptionJobs } from '../modules/plans/subscription.service.js';
+import { expireUnpaidOrders, remindUnconfirmed } from '../modules/shop/shop.service.js';
 import { Tenant } from '../modules/tenants/tenant.model.js';
 
 const INTERVAL_MS = 60_000;
@@ -49,7 +50,10 @@ export async function dispatchDueReminders() {
     await runWithTenant(slug, async () => {
       await dispatchForTenant();
       await expireUnpaidOrders();
+      await remindUnconfirmed();
       await sendAppointmentReminders(MAX_PER_TICK);
+      // Vendor plans: renewal reminders 7 days and 1 day ahead, and falling back to the free plan.
+      await runSubscriptionJobs(MAX_PER_TICK);
     });
   }
 }
