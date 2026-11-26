@@ -4,7 +4,7 @@ import { authenticate } from '../../common/auth.js';
 import { badRequest, conflict, forbidden, notFound } from '../../common/errors.js';
 import { runWithTenant } from '../../common/tenancy.js';
 import { objectId, validate } from '../../common/validate.js';
-import { paymentGateway } from '../../integrations/payments.js';
+import { mockSignature, paymentGateway } from '../../integrations/payments.js';
 import { Booking } from '../bookings/booking.model.js';
 import { isActive } from '../bookings/booking.service.js';
 import { notify } from '../notifications/notify.js';
@@ -56,6 +56,22 @@ async function findPayable(filter) {
   const order = await ShopOrder.findOne(filter);
   return order ? { kind: 'shop', doc: order } : null;
 }
+
+// Sandbox only. The mock gateway has no checkout sheet, so the app asks the server to sign a fake
+// payment for one of the caller's own pending orders. Unavailable with a real gateway, and the mock
+// gateway itself is refused in production.
+router.post(
+  '/mock/sign',
+  authenticate,
+  validate({ body: { orderId: z.string().min(1).max(100), paymentId: z.string().min(1).max(100) } }),
+  async (req, res) => {
+    if (paymentGateway().name !== 'mock') throw notFound('Route');
+    const { orderId, paymentId } = req.valid.body;
+    const payable = await findPayable({ 'payment.orderId': orderId, user: req.user._id });
+    if (!payable) throw notFound('Payment order');
+    res.json({ signature: mockSignature(`${orderId}|${paymentId}`) });
+  },
+);
 
 const settle = (payable, paymentId) => (payable.kind === 'shop' ? markOrderPaid(payable.doc, paymentId) : markPaid(payable.doc, paymentId));
 

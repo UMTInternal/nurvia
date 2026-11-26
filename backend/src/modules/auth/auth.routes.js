@@ -15,8 +15,9 @@ const router = Router();
 // The in-memory store is per process: use a shared store (e.g. Redis) once running several instances.
 const limiter = (limit) =>
   rateLimit({ windowMs: 15 * 60 * 1000, limit, standardHeaders: 'draft-7', legacyHeaders: false, skip: () => env.nodeEnv === 'test' });
-export const otpLimiter = limiter(10);
-const loginLimiter = limiter(20);
+// Strict in production; development/testing from one device would otherwise lock itself out in minutes.
+export const otpLimiter = limiter(env.isProd ? 10 : 200);
+const loginLimiter = limiter(env.isProd ? 20 : 200);
 
 // A mobile number or an email to add to a profile (/users/me/contact/request and /verify).
 export const otpTarget = {
